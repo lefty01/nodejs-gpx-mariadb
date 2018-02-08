@@ -1,3 +1,4 @@
+
 var util = require('util');
 var fs = require('fs');
 var xml2js = require('xml2js');
@@ -10,23 +11,60 @@ exports.fileForm = function(req, res) {
     });
 };
  
-exports.fileUpload = function(req, res, next){
-    console.log('file info: ',req.files.uploadedFile);
- 
-        //split the url into an array and then get the last chunk and render it out in the send req.
-    // var pathArray = req.files.uploadedFile.path.split( '/' );
-    req.session.uploadedFilePath = req.files.uploadedFile.path;
- 
-    res.send(util.format(' Task Complete \n uploaded %s (%d Kb) to %s as %s'
-			 , req.files.uploadedFile.name
-			 , req.files.uploadedFile.size / 1024 | 0
-			 , req.session.uploadedFilePath
-			 , req.body.title
-			 , req.files.uploadedFile
-			));
- 
- 
-};
+exports.fileUpload = function(req, res) {
+    var fstream;
+    var fsize = 0;
+    var limit_reached = 0;
+    req.pipe(req.busboy);
+    req.busboy.on('file', function (fieldname, file, filename, encoding, mimetype) {
+        console.log("Uploading: " + filename + " to: " + req.session.uploadPath);
+	console.log("filename length: " + filename.length);
+	console.log("file mimetype: " + mimetype);
+	console.log("file encoding: " + encoding);
+
+	// check mimetype ? / extension to only allow gpx files?
+	file.on('data', function(data) {
+	    console.log('File [' + fieldname + '] got ' + data.length + ' bytes');
+	    fsize += data.length;
+	});
+
+	// check for file size limit (currently 10MiB)
+        file.on('limit', function() {
+            console.log('file size limit reached!!!');
+            //delete incomplete file
+            fs.unlink(req.session.uploadPath + filename, function(err) {
+		if (err) {
+		    console.log("ERROR: unlink failed for file: " +
+				req.session.uploadPath + filename);
+		}
+	    });
+	    limit_reached = 1;
+        });
+
+        fstream = fs.createWriteStream(req.session.uploadPath + filename);
+        file.pipe(fstream);
+        fstream.on('close', function () {
+	    // check if size zero
+	    if (fsize == 0) {
+		console.log('file size is zero!!!');
+		fs.unlink(req.session.uploadPath + filename, function(err) {
+		    if (err) {
+			console.log("ERROR: unlink failed for file: " +
+				    req.session.uploadPath + filename);
+		    }
+		});
+		res.send('ERROR: file has size of zero!');
+            }
+	    else if (limit_reached) {
+		res.send('ERROR: file too large (limit is 10MB)!');
+	    }
+	    else {
+		res.send(util.format('Upload complete!\nuploaded %s (%d Kb)',
+				     filename, fsize / 1024));
+	    }
+	});
+    });
+}
 
 exports.readFile = function(req, res) {
     fs.readFile(testFilePath, 'ascii', function (err, data) {
@@ -42,7 +80,8 @@ exports.parseGPX = function(req, res) {
     var json = '';
 
     try {
-	var fileData = fs.readFileSync(req.session.uploadedFilePath, 'ascii');
+	// read (last?) uploaded file
+	var fileData = fs.readFileSync(req.session.uploadedFile, 'ascii');
 	var parser = new xml2js.Parser();
 	parser.parseString(fileData.substring(0, fileData.length), function (err, result) {
 	    json = result;
@@ -108,3 +147,4 @@ exports.trackInfo = function(req, res) {
     console.log("trackId: " + req.param("trackId"));
     data.getDistance(req.param("trackId"), res);
 }
+

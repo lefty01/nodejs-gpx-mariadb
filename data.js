@@ -10,8 +10,8 @@ exports.connect = function() {
     (
 	{
 	    host: '127.0.0.1',
-	    user: 'root',
-	    password: 'password1',
+	    // user: 'root',
+	    // password: 'password1',
 	    db: 'running'
 	}
     );
